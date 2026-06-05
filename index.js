@@ -22,6 +22,8 @@ async function askClaude(userMessage) {
     }),
   });
   const data = await res.json();
+  console.log('Claude API 回應:', JSON.stringify(data));
+  if (!data.content) throw new Error(JSON.stringify(data));
   return data.content[0].text;
 }
 
