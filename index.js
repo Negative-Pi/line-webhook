@@ -2,6 +2,43 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const SYSTEM_PROMPT = '你是大雄的機器人助手，請用繁體中文回覆，語氣親切自然。';
+
+async function askClaude(userMessage) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+  const data = await res.json();
+  return data.content[0].text;
+}
+
+async function replyToLine(replyToken, text) {
+  await fetch('https://api.line.me/v2/bot/message/reply', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: 'text', text }],
+    }),
+  });
+}
+
 const users = {};
 
 app.post('/webhook', (req, res) => {
@@ -20,6 +57,14 @@ app.post('/webhook', (req, res) => {
       users[userId].lastSeen = new Date().toISOString();
       users[userId].lastEventType = event.type;
       console.log(`收到事件：${event.type}，User ID：${userId}`);
+
+      // 如果是文字訊息，用 Claude 回覆
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userText = event.message.text;
+        askClaude(userText)
+          .then(reply => replyToLine(event.replyToken, reply))
+          .catch(err => console.error('Claude 回覆失敗:', err));
+      }
     }
   });
   res.status(200).json({ status: 'ok' });
